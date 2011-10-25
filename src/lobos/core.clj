@@ -30,14 +30,6 @@
 
 ;; -----------------------------------------------------------------------------
 
-;; ## Helpers
-
-(defmacro without-migration [& body]
-  `(binding [mig/*record* nil]
-     ~@body))
-
-;; -----------------------------------------------------------------------------
-
 ;; ## Debugging Interface
 
 (defn set-debug-level
@@ -106,8 +98,7 @@
                (optional-cnx-or-schema params#)]
            (execute
             (do ~@body)
-            ~'db-spec)
-           (mig/record self#)))
+            ~'db-spec)))
        (defmacro ~name [~'& args#]
          `(~~name* (quote ~~'&form) ~@args#))
        (.setMeta #'~name
@@ -168,61 +159,18 @@
                (optional-cnx-and-sname params#)]
            (mig/create-migrations-table ~'db-spec ~'sname)
            (do ~@body)))
-       (.setMeta #'~name
-                 (merge (.meta #'~name)
-                        {:arglists
-                         '(~(vec (conj params
-                                       'sname?
-                                       'cnx-or-schema?)))})))))
+       (alter-meta! #'~name
+                    merge 
+                    {:arglists
+                     '(~(vec (conj params
+                                   'sname?
+                                   'cnx-or-schema?)))}))))
 
 ;; ### Migration Commands
 
-(defn print-stash []
-  (when (.exists mig/*stash-file*)
-    (print (slurp mig/*stash-file*))))
-
-(defcommand print-done []
-  (doseq [name (mig/query-migrations-table db-spec sname)]
-    (println name)))
-
-(defcommand print-pending []
-  (doseq [name (mig/pending-migrations db-spec sname)]
-    (println name)))
-
-(defcommand migrate [& names]
-  (let [names (if (empty? names)
-                (mig/pending-migrations db-spec sname)
-                names)]
-    (mig/do-migrations db-spec sname :up names)))
-
-(defcommand rollback [& args]
-  (let [names (cond
-               (empty? args)
-               [(last (mig/query-migrations-table db-spec sname))]
-               (= 1 (count args))
-               (let [arg (first args)
-                     migs (mig/query-migrations-table db-spec sname)]
-                 (cond
-                  (integer? arg) (take arg migs)
-                  (= arg :all) migs
-                  :else args))
-               :else args)]
-    (mig/do-migrations db-spec sname :down names)))
-
-(defcommand reset [& args]
-  (apply rollback args)
-  (migrate))
-
-(defcommand generate-migration [name & [msg]]
-  (let [name (symbol (if (string? name)
-                       name
-                       (clojure.core/name name)))]
-    (when-not name
-      (throw (IllegalArgumentException.
-              "Migration must be named.")))
-    (when ((set (mig/list-migrations-names)) (str name))
-      (throw (IllegalArgumentException.
-              "Migration name is already taken.")))
-    (mig/generate-migration* db-spec sname name msg
-                             (mig/read-stash-file))
-    (mig/clear-stash-file)))
+(defcommand migrate
+  "Applies the migrations in the supplied namespaces to the database."
+  [& namespaces]
+  (doseq [namespace namespaces]
+    (mig/apply-migrations db-spec sname
+      (mig/pending-migrations db-spec sname namespace))))

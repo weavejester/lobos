@@ -42,18 +42,33 @@
 (defmacro defmigration
   [name & args]
   (let [[name args] (name-with-attributes name args)]
-    `(do (def ~name (migration ~(str name) ~@args))
-         (defonce ~'db-migrations (atom []))
-         (swap! ~'db-migrations conj ~name)
-         (swap! all-migrations assoc ~(str name) ~name))))
+    `(let [id# (str (ns-name *ns*) "/" ~(str name))]
+       (def ~name (migration id# ~@args))
+       (defonce ~'db-migrations (atom []))
+       (swap! ~'db-migrations conj ~name)
+       (swap! all-migrations assoc id# ~name))))
 
-(defn list-migrations
+(defn migration-var
   [namespace]
   (-> (str namespace)
       (symbol "db-migrations")
-      (find-var)
-      (var-get)
-      (deref)))
+      (find-var)))
+
+(defn migration-ref
+  [namespace]
+  (if-let [v (migration-var namespace)]
+    (var-get v)))
+
+(defn list-migrations
+  [namespace]
+  (if-let [r (migration-ref namespace)]
+    @r
+    []))
+
+(defn clear-migrations
+  [namespace]
+  (if-let [r (migration-ref namespace)]
+    (reset! r [])))
 
 (defn migrations-table-exists?
   [db-spec sname]
@@ -105,7 +120,7 @@
     (up migration)
     (insert-migrations db-spec sname migration)))
 
-(defn rollback-all
+(defn rollback-migrations
   [db-spec sname migrations]
   (doseq [migration migrations]
     (down migration)

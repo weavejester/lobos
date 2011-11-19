@@ -16,7 +16,8 @@
 
 (deftest test-defmigration
   (defmigration test-mig-1)
-  (is (= (id test-mig-1) "test-mig-1")))
+  (is (= (id test-mig-1)
+         (str (ns-name *ns*) "/test-mig-1"))))
 
 (defmacro with-migrations-table [& body]
   `(binding [*db* h2-spec]
@@ -66,3 +67,9 @@
       (migration "baz"))
     (is (empty? (query *db* :lobos :lobos_migrations))
         "Should delete all migration entries")))
+
+(deftest test-pending-migrations
+  (clear-migrations 'lobos.test.migration)
+  (with-migrations-table
+    (is (empty? (pending-migrations *db* :lobos 'lobos.test.migration))
+        "Should return an empty list")))
